@@ -1,4 +1,3 @@
-### Info
 
 **Objectives**:
 1. User.txt Flag
