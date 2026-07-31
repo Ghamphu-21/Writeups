@@ -1,12 +1,14 @@
-## Internal
+## Info
 
 **Objectives**:
 1. User.txt Flag
 2. Root.txt Flag
 
 **Room:** https://tryhackme.com/room/internal
+
 **Target IP:** `10.48.157.111`
 
+## Walkthrough
 
 An initial Nmap scan was performed against the target to identify open ports, running services, and the operating system:
 
