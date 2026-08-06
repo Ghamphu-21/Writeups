@@ -5,6 +5,10 @@
 
 **Room:** https://tryhackme.com/room/internal
 
+**Difficulty:** Hard
+
+**OS:** Linux
+
 **Target IP:** `10.48.157.111`
 
 ## Walkthrough
