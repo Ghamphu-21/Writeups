@@ -1,9 +1,10 @@
 ## About
 
 **Objectives**
-1. Web Flag
-2. User Flag
-3. Root Flag
+1. Web Flag: `thm{0ae72f7870c3687129f7a824194be09d}`
+2. User Flag: `thm{3693fc86661faa21f16ac9508a43e1ae}`
+3. Root Flag: `thm{a4f6adb70371a4bceb32988417456c44}`
+
 
 **Room:** https://tryhackme.com/room/overpass3hosting
 
@@ -93,12 +94,12 @@ From here, we can upload a reverse shell and get a connection. We can use https:
 
 ![](Assets/2026-08-06_19-55.png)
 
-Now, we can a start a listener (Here i used Penelope, netcat works fine too) and visit to `http://10.49.152.7/shell.php` to trigger the connection.
+Now, we can a start a listener (Here i used Penelope, netcat works fine too) and visit `http://10.49.152.7/shell.php` to trigger the connection.
 
 ![](Assets/2026-08-06_20-00.png)
 
 
-The first web flag is located inside the `/usr/share/httpd folder` and we can read our first flag `thm{0ae72f7870c3687129f7a824194be09d}`.
+The first web flag is located inside the `/usr/share/httpd` directory and we can read our first flag `thm{0ae72f7870c3687129f7a824194be09d}`.
 
 ![](Assets/2026-08-06_20-04.png)
 
@@ -208,7 +209,7 @@ In the victim machine, execute the binary with `./binary -p` to gain root shell!
 
 ![](Assets/2026-08-06_22-39.png)
 
-Now, we can read the root flag `thm{a4f6adb70371a4bceb32988417456c44}`
+Now, we can read the root flag `thm{a4f6adb70371a4bceb32988417456c44}`.
 
 ![](Assets/2026-08-06_22-42.png)
 
