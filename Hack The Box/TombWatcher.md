@@ -1,13 +1,15 @@
 ## About TombWatcher
 
-|             |                                                 |
-| ----------- | ----------------------------------------------- |
-| Name        | TombWatcher                                     |
-| Machine     | https://app.hackthebox.com/machines/TombWatcher |
-| Difficulty  | Medium                                          |
-| OS          | Windows                                         |
-| Target IP   | 10.129.232.167                                  |
-| Credentials | `henry: H3nry_987TGV!`                          |
+**Name:** TombWatcher
+
+**Machine:** https://app.hackthebox.com/machines/TombWatcher
+
+**Difficulty:** Medium
+
+**Target IP:** 10.129.232.167
+
+**Credentials:** `henry: H3nry_987TGV!`
+
 
 ---
 ## Enumeration
