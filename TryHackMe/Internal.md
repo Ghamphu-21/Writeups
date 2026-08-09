@@ -48,7 +48,7 @@ Navigating to `http://10.48.157.111/blog/` revealed a WordPress-style site. A bi
 
 ## Foothold
 
-We tried a few default and commonly used credentials against the login page and confirmed that the username **admin** was valid - the login form's error message gave this away even without knowing the password yet.
+I tried a few default and commonly used credentials against the login page and confirmed that the username **admin** was valid - the login form's error message gave this away even without knowing the password yet.
 
 ![](Assets/admin.png)
 

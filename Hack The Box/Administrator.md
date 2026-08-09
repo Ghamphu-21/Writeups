@@ -45,7 +45,7 @@ The output shows a full Active Directory service stack - DNS, Kerberos, LDAP, SM
 
 ![](Assets/2026-08-09_17-55.png)
 
-Since we're treating this like a real assessment, we were given a starting set of credentials: `Olivia:ichliebedich`. Let's use these to check for accessible SMB shares:
+Since we're treating this like a real assessment, we were given a starting set of credentials `Olivia: ichliebedich`. Let's use these to check for accessible SMB shares:
 
 ```
 nxc smb 10.129.59.4 -u Olivia -p ichliebedich --shares
