@@ -95,9 +95,11 @@ We successfully authenticate as `Michael` with the new password.
 ![](Assets/2026-08-09_17-20.png)
 
 We're in as `Michael` and enumerating files and folder - we found nothing interesting.
+
 ![](Assets/2026-08-09_17-24.png)
 
 Back in BloodHound, we see that Michael holds **ForceChangePassword** rights over the user `Benjamin`. Unlike GenericAll, ForceChangePassword only lets us reset the target's password (nothing more) - but that's all we need here. 
+
 ![](Assets/2026-08-09_17-23.png)
 
 We can perform this either through evil-winrm directly or with BloodyAD; let's go with BloodyAD:
