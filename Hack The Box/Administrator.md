@@ -1,10 +1,15 @@
 ## About Administrator
 
 **Name:** Administrator
+
 **Machine:** https://app.hackthebox.com/machines/Administrator
+
 **Difficulty:** Medium
+
 **OS:** Windows
+
 **Target IP:** 10.129.59.4
+
 **Credentials:** `Olivia: ichliebedich`
 
 ---
@@ -192,7 +197,7 @@ john --wordlist=/usr/share/wordlists/rockyou.txt ethan_tgs
 
 ![](Assets/2026-08-09_20-09.png)
 
-Checking BloodHound again with Ethan's account in mind, we find he holds **GetChanges**, **GetChangesAll**, and **GetChangesInFilteredSet** rights over the domain object itself.
+Checking BloodHound again with Ethan's account, we find he holds **GetChanges**, **GetChangesAll**, and **GetChangesInFilteredSet** rights over the domain object itself.
 
 ![](Assets/2026-08-09_21-05.png)
 

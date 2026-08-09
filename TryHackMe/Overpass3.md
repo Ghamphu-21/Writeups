@@ -1,10 +1,7 @@
-## About
+## About Overpass3
 
-**Objectives**
-1. Web Flag: `thm{0ae72f7870c3687129f7a824194be09d}`
-2. User Flag: `thm{3693fc86661faa21f16ac9508a43e1ae}`
-3. Root Flag: `thm{a4f6adb70371a4bceb32988417456c44}`
 
+**Name:** Overpss3
 
 **Room:** https://tryhackme.com/room/overpass3hosting
 
@@ -14,7 +11,8 @@
 
 **Target IP:** `10.49.152.7`
 
-## Walkthrough
+---
+## Enumeration
 
 
 I started, as always, with a full port scan to enumerate open ports, running services, and the OS:
@@ -40,6 +38,8 @@ ffuf -u http://10.49.152.7/FUZZ -w /usr/share/wordlists/seclists/Discovery/Web-C
 This turned up an interesting `backups` directory. I navigated into the directory and found a zip file that looked promising, so I downloaded it to dig through later.
 
 ![](Assets/2026-08-06_18-58.png)
+
+## Foothold
 
 After downloading and extracting the zip file, two files were present:
 - `CustomerDetails.xlsx.gpg` - an encrypted spreadsheet
@@ -90,7 +90,7 @@ SSH didn't work with these creds, but I got lucky with **FTP** - logged in fine 
 
 ![](Assets/2026-08-06_19-39.png)
 
-From here, we can upload a reverse shell and get a connection. We can use https://github.com/pentestmonkey/php-reverse-shell/blob/master/php-reverse-shell.php.
+From here, we can upload a reverse shell and get a connection. We can use [Pentest_Monkey](https://github.com/pentestmonkey/php-reverse-shell/blob/master/php-reverse-shell.php).
 
 ![](Assets/2026-08-06_19-55.png)
 
@@ -98,10 +98,11 @@ Now, we can a start a listener (Here i used Penelope, netcat works fine too) and
 
 ![](Assets/2026-08-06_20-00.png)
 
-
 The first web flag is located inside the `/usr/share/httpd` directory and we can read our first flag `thm{0ae72f7870c3687129f7a824194be09d}`.
 
 ![](Assets/2026-08-06_20-04.png)
+
+## Privilege Escalation
 
 Poking around the home directory, we found two users: `james` and `paradox`. I tried reusing the password I'd recovered from the spreadsheet for `paradox`, and it worked!
 

@@ -10,9 +10,7 @@
 | Credentials | `henry: H3nry_987TGV!` |
 
 ---
-## Walkthrough
-
-### Enumeration
+## Enumeration
 
 Let's kick things off with an Nmap scan using the `-sV` and `-sC` flags to identify open ports and running services:
 
@@ -99,7 +97,7 @@ This gave us four non-default usernames that could be worth investigating later.
 
 ![](Assets/2026-08-08_18-22.png)
 
-### Foothold
+## Foothold
 
 With a decent picture of the domain's users forming, it's time to bring in **BloodHound** to map out the AD attack surface:
 
@@ -222,7 +220,7 @@ netexec winrm 10.129.232.167 -u john -p password123 -x "type C:\Users\john\Deskt
 
 ![](Assets/2026-08-08_20-50.png)
 
-### Privilege Escalation
+## Privilege Escalation
 
 While exploring BloodHound as john, we discovered that he holds **GenericAll** permissions on the OU `ADCS@TOMBWATCHER.HTB`.
 
