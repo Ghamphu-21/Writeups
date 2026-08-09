@@ -6,6 +6,8 @@
 
 **Difficulty:** Medium
 
+**OS:** Windows
+
 **Target IP:** 10.129.232.167
 
 **Credentials:** `henry: H3nry_987TGV!`
