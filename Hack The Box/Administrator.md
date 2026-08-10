@@ -199,7 +199,7 @@ john --wordlist=/usr/share/wordlists/rockyou.txt ethan_tgs
 
 ![](Assets/2026-08-09_20-09.png)
 
-Checking BloodHound again with Ethan's account, we find he holds **GetChanges**, **GetChangesAll**, and **GetChangesInFilteredSet** rights over the domain object itself.
+Checking BloodHound again with Ethan's account, we find he holds **GetChanges**, **GetChangesAll**, and **GetChangesInFilteredSet** rights over the domain itself.
 
 ![](Assets/2026-08-09_21-05.png)
 
