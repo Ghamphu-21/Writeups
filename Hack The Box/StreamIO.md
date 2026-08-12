@@ -62,29 +62,29 @@ PORT     STATE SERVICE       VERSION
 Service Info: Host: DC; OS: Windows; CPE: cpe:/o:microsoft:windows
 ```
 
-We added the domain (`streamIO.htb`) and hostname (`DC`) to our `/etc/hosts` file:
+We added the domain (`streamIO.htb`) and hostname (`DC`) to our `/etc/hosts` file.
 
 ![](Assets/2026-08-11_15-14.png)
 
-We quickly checked SMB for null and guest session access, but both were disabled - meaning any further SMB enumeration would require valid credentials first:
+We quickly checked SMB for null and guest session access, but both were disabled - meaning any further SMB enumeration would require valid credentials first.
 
 ![](Assets/2026-08-11_15-16.png)
 
 ## Web Enumeration
 
-Port 80 served a default IIS landing page, and directory brute-forcing against it turned up nothing of value:
+Port 80 served a default IIS landing page, and directory brute-forcing against it turned up nothing of value.
 
 ![](Assets/2026-08-11_15-22.png)
 
-Port 443, on the other hand, hosted a functional online movie streaming site at `https://streamio.htb/`:
+Port 443, on the other hand, hosted a functional online movie streaming site at `https://streamio.htb/`.
 
 ![](Assets/2026-08-11_16-12.png)
 
-We found a login page and tried brute-forcing it with a username/password combination list, but this turned out to be a wasted effort - no hits came back:
+We found a login page and tried brute-forcing it with a username/password combination list, but this didn't give us any result.
 
 ![](Assets/2026-08-11_16-18.png)
 
-Directory brute-forcing against the main site did surface a few paths, but we were denied access to all of them at this stage.
+Directory brute-forcing against the main site gave us some result, but we were denied access to all of them at this stage.
 
 ![](Assets/2026-08-11_19-41.png)
 
@@ -108,7 +108,8 @@ ffuf -u https://watch.streamio.htb/FUZZ -w /usr/share/wordlists/seclists/Discove
 
 ![](Assets/2026-08-11_17-21.png)
 
-Clicking "watch" on any movie triggered a prompt:
+Clicking "watch" on any movie triggered a prompt.
+
 ![](Assets/2026-08-11_17-22.png)
 
 ## Foothold
