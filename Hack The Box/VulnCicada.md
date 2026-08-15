@@ -19,7 +19,7 @@ I'll start with an nmap scan:
 sudo nmap -sC -sV -oA nmap/VulnCicada -v 10.129.63.169
 ```
 
-Looking at the output indicates that it is a Domain Contorller. There's also an unusual pair for a DC: `rpcbind`/`nfs` on 111 and 2049, which isn't something we normally see on a Windows box.
+Looking at the output indicates that it is a Domain Controller. There's also an unusual pair for a DC: `rpcbind`/`nfs` on 111 and 2049, which isn't something we normally see on a Windows box.
 
 ```
 PORT     STATE SERVICE       VERSION
@@ -165,7 +165,7 @@ Listing it out, the share holds a set of per-user directories.
 
 ![](Assets/2026-08-15_19-54.png)
 
-Most of them are empty to the `nobody`/anonymous NFS identity I'm mounting as, but two directories are readable.
+Most of them are empty to the public user I'm mounting as, but two directories are readable.
 
 ![](Assets/2026-08-15_20-06.png)
 
@@ -230,7 +230,7 @@ No certificate templates come back as vulnerable, but the CA itself is flagged f
 
 ![](Assets/2026-08-15_21-25.png)
 
-There are two ways to execute this attack. 
+There are two ways to execute this attack:
 - One is from a domain-joined Windows host using [RemoteKrbRelay](https://github.com/CICADA8-Research/RemoteKrbRelay), which automates both the coercion and the Kerberos relay to the AD CS Web Enrollment endpoint. 
 - The other is entirely from Linux, using the technique described in [Synacktiv's](https://www.synacktiv.com/publications/relaying-kerberos-over-smb-using-krbrelayx.html) Kerberos relay research. I'll go with the Linux route here since it avoids standing up a Windows box just for this step.
 
