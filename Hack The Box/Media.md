@@ -310,7 +310,7 @@ I SSH in as `hacker` and read the root flag.
 
 ![](Assets/2026-08-15_01-10.png)
 
-RDP also works with the same credentials, and the user flag is readable there as well.
+RDP also works with the same credentials, and the root flag is readable there as well.
 
 ![](Assets/2026-08-15_01-20.png)
 
