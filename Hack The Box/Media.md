@@ -11,7 +11,7 @@
 **Target IP:** 10.129.234.67
 
 ---
-## Enumeration
+## Recon
 
 I'll start with a standard nmap scan against all ports to see what's exposed:
 
@@ -52,6 +52,8 @@ PORT     STATE SERVICE       VERSION
 |_ssl-date: 2026-08-14T15:08:04+00:00; 0s from scanner time.
 Service Info: OS: Windows; CPE: cpe:/o:microsoft:windows
 ```
+
+## Web Enumeration
 
 Port 80 loads a simple site.
 
