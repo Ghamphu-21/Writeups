@@ -120,7 +120,7 @@ smbclient -U j.fleischman \\\\10.129.232.88\\IT
 
 ![](Assets/2026-08-18_19-41.png)
 
-Inside are two directories, two zip files, and a PDF. I'll download the zips and the PDF, then extract everything locally.
+Inside there are two directories, two zip files, and a PDF. I'll download the zips and the PDF, then extract everything locally.
 
 ![](Assets/2026-08-18_19-48.png)
 
@@ -132,7 +132,7 @@ Back on the share, the nested directories just hold the same files I already ext
 
 ![](Assets/2026-08-18_20-02.png)
 
-Two stand out: `CVE-2025-24996` and `CVE-2025-24071`, both critical. `CVE-2025-24071` is the more well-known one. It works like this: if a `.library-ms` file sits in a folder, and a user just browses to that folder in Explorer, Explorer automatically tries to resolve the file's referenced remote path. That alone is enough to leak the browsing user's NetNTLMv2 hash to an attacker-controlled listener. No file needs to be opened.
+Two vulnerabilities stands out here - `CVE-2025-24996` and `CVE-2025-24071`, both critical. `CVE-2025-24071` is the more well-known one. It works like this: if a `.library-ms` file sits in a folder, and a user just browses to that folder in Explorer, Explorer automatically tries to resolve the file's referenced remote path. That alone is enough to leak the browsing user's NetNTLMv2 hash to an attacker-controlled listener. No file needs to be opened.
 
 ## Foothold
 

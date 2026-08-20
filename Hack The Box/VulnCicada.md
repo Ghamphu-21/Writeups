@@ -11,7 +11,7 @@
 **Target IP:** 10.129.63.169
 
 ---
-## Enumeration
+## Recon
 
 I'll start with an nmap scan:
 

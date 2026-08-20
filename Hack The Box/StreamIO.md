@@ -114,7 +114,7 @@ Clicking "watch" on any movie triggers a prompt.
 
 ![](Assets/2026-08-11_17-22.png)
 
-## Foothold
+## SQL Injection
 
 As a quick check, I try a simple SQL injection payload in the search box. This redirects to `/blocked.php`, showing "Malicious Activity Detected!!" - actually a good sign, since it confirms the input is reaching a query somewhere.
 
@@ -188,6 +188,8 @@ cn' UNION select 1,concat(username,':',password),3,4,5,6 from users;-- -
 ```
 
 ![](Assets/https___watch.streamio.htb_search.php(1).png)
+
+## Foothold
 
 I save this to `creds.txt` and use `awk` to split it into separate hash and username lists for cracking:
 

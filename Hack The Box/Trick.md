@@ -11,7 +11,7 @@
 **Target IP:** 10.129.227.180
 
 ---
-## Enumeration
+## Recon
 
 I'll start with an nmap scan to discover open ports and services:
 
